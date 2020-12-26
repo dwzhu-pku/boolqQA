@@ -7,52 +7,56 @@ from torchtext import data, datasets, vocab
 from torchtext.data import Iterator, BucketIterator
 import torch
 import os
-from nltk import word_tokenize
+import torch.nn as nn
+from nltk.tokenize import word_tokenize 
 
-VOCAB_SIZE = 10000 # 词表大小，是一个超参数，有待调整
-GLOVE_PATH = "D:\Data\glove.6B\glove.6B.50d.txt" # 全局变量，指向预训练词向量
+GLOVE_PATH = "glove.6B.100d.txt" # 全局变量，指向预训练词向量
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") 
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu") 
 
 # 以下定义两个Field
-TEXT = data.Field(sequential=True, tokenize=word_tokenize,batch_first=True,
+TEXT_Field = data.Field(sequential=True, tokenize=word_tokenize,batch_first=True,
                   lower=True, fix_length=None, init_token="<SOS>", eos_token="<EOS>")
-LABEL = data.Field(sequential=False, use_vocab=False,batch_first=True)
+
+LABEL_Field = data.Field(sequential=False, use_vocab=False,batch_first=True)
 
 # 加载验证集和训练集。测试集相关部分有待补充
-valid = data.TabularDataset(path="./dev.json", format="json",
-                          fields={"question": ("question", TEXT),
-                                  "answer": ("labels", LABEL), "title": ("title", TEXT), "passage": ("passage", TEXT)})
+valid_data = data.TabularDataset(path="./dev.json", format="json",
+                          fields={"question": ("question", TEXT_Field),
+                                  "answer": ("labels", LABEL_Field), "title": ("title", TEXT_Field), "passage": ("passage", TEXT_Field)})
 
-train = data.TabularDataset(path="./train.json", format="json",
-                          fields={"question": ("question", TEXT),
-                                  "answer": ("labels", LABEL), "title": ("title", TEXT), "passage": ("passage", TEXT)})
+train_data = data.TabularDataset(path="./train.json", format="json",
+                          fields={"question": ("question", TEXT_Field),
+                                  "answer": ("labels", LABEL_Field), "title": ("title", TEXT_Field), "passage": ("passage", TEXT_Field)})
 
 # 以下几行构建词表
 if not os.path.exists(".vector_cache"):
     os.mkdir(".vector_cache")
-TEXT.build_vocab(train, vectors=vocab.Vectors(
-    GLOVE_PATH), max_size=VOCAB_SIZE)
-LABEL.build_vocab(train)
+TEXT_Field.build_vocab(train_data, vectors=vocab.Vectors(GLOVE_PATH))#这里是根据
 
-# 以下获取词表并作简单验证
-vocab = TEXT.vocab
-print(vocab.freqs.most_common(10))
+vocab = TEXT_Field.vocab
+#print(vocab.freqs.most_common(10))
 print(len(vocab.stoi))
-print(list(vocab.stoi)[:10])
-print(list(vocab.stoi)[-10:])
+#print(list(vocab.stoi)[:10])
+#print(list(vocab.stoi)[-10:])
 
+emb = nn.Embedding(len(vocab),100)
+emb.weight.data.copy_(vocab.vectors)
+
+print(emb(torch.LongTensor([4])))
+
+"""
 # 将词表写入本地文件中。这一部分不必须
 with open("./vocab", 'w', encoding="utf8") as fout:
     for key, val in vocab.stoi.items():
         fout.write("{}\t{}\n".format(str(key), str(val)))
 
-# 获取训练集和验证集的迭代器
+
+# 获取训练集和验证集的迭代器，在迭代的时候自动numericalize，这是由Field内嵌完成的，对应的就是field自己的vocab,也就是根据
 train_iter, val_iter=BucketIterator.splits(
     (train, valid),
     batch_sizes=(128, 128),
     device=device,
-    sort_key=lambda x: len(x.passage),
     sort_within_batch=False,
     repeat=False
 )
@@ -67,7 +71,7 @@ for idx, Iter in enumerate(train_iter):
 # 简单的sanity check
 for idx, batch in enumerate(train_iter):
     ques,passage,title,label = batch.question,batch.passage,batch.title,batch.labels
-    if (idx > 2):
+    if (idx > 0):
         break
     print("question:",ques)
     print("passage:",passage)
@@ -78,3 +82,5 @@ for idx, batch in enumerate(train_iter):
     print(" ".join([vocab.itos[num.item()] for num in passage[0]]))
     print(" ".join([vocab.itos[num.item()] for num in title[0]]))
     print(label[0].item())
+
+"""

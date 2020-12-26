@@ -12,3 +12,10 @@ with jsonlines.open("./train.json", "w") as wfd:
         for data in rfd:
             data = json.loads(data)
             wfd.write(data)
+
+
+with jsonlines.open("./dev.json", "w") as wfd:
+    with open("./dev.jsonl", "r", encoding='utf-8') as rfd:
+        for data in rfd:
+            data = json.loads(data)
+            wfd.write(data)
