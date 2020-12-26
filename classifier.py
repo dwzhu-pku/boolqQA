@@ -5,9 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
 from model import LSTM,CRNN,CNN,LSTM_ATTN
-from dataProcess import 
+from dataProcess import TEXT_Field,LABEL_Field,LENGTH_Field,construct_dataset,Mydataset
 
 class classify():
 

@@ -40,7 +40,7 @@ class LSTM(nn.Module):
 
 #freeze
 class LSTM_ATTN(nn.Module):
-    def __init__(self,num_embeddings,embedding_dim,embedding_list,freeze,hidden_size1,hidden_size2,output_size,dropout,batch_size,device):
+    def __init__(self,embedding,freeze,hidden_size1,hidden_size2,output_size,dropout,batch_size,device):
         """
         parameters:全部都是网络相关的超参数 和数据本身无关
         input_size：也就是预训练的词向量的size
@@ -51,9 +51,8 @@ class LSTM_ATTN(nn.Module):
         较好的超参数：lr=1e-3
         """
         super(LSTM_ATTN,self).__init__()
-        pretrained = torch.FloatTensor(embedding_list)
-        self.embedding_layer = nn.Embedding(num_embeddings=num_embeddings,embedding_dim=embedding_dim
-        ).from_pretrained(embeddings = pretrained,freeze=freeze).to(device)#导入外部训练好的glovepython
+        
+        self.embedding_layer = embedding.to(device)#导入外部训练好的glovepython
         
         self.dropout_layer=nn.Dropout(dropout).to(device)
         self.lstm = nn.LSTM(input_size=embedding_dim,hidden_size=hidden_size1,batch_first=True,bidirectional=True).to(device)
