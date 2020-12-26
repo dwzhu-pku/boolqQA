@@ -101,3 +101,4 @@ def attention_avg_pooling(sent1, sent2, mask1, mask2):
     s2 = F.avg_pool1d(s2.transpose(1, 2), kernel_size=3, padding=1, stride=1)
     s1, s2 = s1.transpose(1, 2), s2.transpose(1, 2)
     return s1, s2
+    
