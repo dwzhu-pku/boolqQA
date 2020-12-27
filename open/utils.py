@@ -1,9 +1,31 @@
 # -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
+import numpy as np
 import time
+import os
+import gensim
+from gensim.test.utils import datapath, get_tmpfile
+from gensim.scripts.glove2word2vec import glove2word2vec
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
+
+
+def load_embeddings(embedding_path):
+    # 将 glove 转换为 word2vec
+    word2vec_path = "../data/test_word2vec.txt"
+    if not os.path.exists(word2vec_path):
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        glove_file = datapath(os.path.join(BASE_DIR, embedding_path))
+        word2vec_file = get_tmpfile(os.path.join(BASE_DIR, word2vec_path))
+        glove2word2vec(glove_file, word2vec_file)
+
+    model = gensim.models.KeyedVectors.load_word2vec_format(word2vec_path, binary=False)
+    embedding_matrix = np.zeros((len(model.index2word) + 1, model.vector_size))
+    #填充向量矩阵
+    for idx, word in enumerate(model.index2word):
+        embedding_matrix[idx + 1] = model[word]#词向量矩阵
+    return embedding_matrix
 
 def generate_sent_masks(enc_hiddens, source_lengths):
     """ Generate sentence masks for encoder hidden states.

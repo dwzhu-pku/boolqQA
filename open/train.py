@@ -7,9 +7,16 @@ from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 import utils
 
-import os
-from data import LCQMC_Dataset, load_embeddings
+# from data import load_embeddings
 from abcnn import ABCNN
+from torchtext import data, vocab
+from torchtext.data import Iterator, BucketIterator
+
+import os
+import sys
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(BASE_DIR, '../code'))
+from dataProcess import TEXT_Field, LABEL_Field, LENGTH_Field, construct_dataset, Mydataset
 
 
 def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_norm):
@@ -37,12 +44,12 @@ def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_no
     correct_preds = 0
     tqdm_batch_iterator = tqdm(dataloader)
 
-    for batch_index, (q, _, h, _, label) in enumerate(tqdm_batch_iterator):
+    for batch_index, batch_data in enumerate(tqdm_batch_iterator):
         batch_start = time.time()
         # Move input and output data to the GPU if it is used.
-        q1 = q.to(device)
-        q2 = h.to(device)
-        labels = label.to(device)
+        q1 = batch_data.question.to(device)
+        q2 = batch_data.passage.to(device)
+        labels = batch_data.label.to(device)
 
         optimizer.zero_grad()
         logits, probs = model(q1, q2)
@@ -89,18 +96,18 @@ def validate(model, dataloader, criterion):
 
     # Deactivate autograd for evaluation.
     with torch.no_grad():
-        for (q, _, h, _, label) in dataloader:
+        for batch_idx, batch_data in enumerate(dataloader):
             # Move input and output data to the GPU if one is used.
-            q1 = q.to(device)
-            q2 = h.to(device)
-            labels = label.to(device)
+            q1 = batch_data.question.to(device)
+            q2 = batch_data.passage.to(device)
+            labels = batch_data.label.to(device)
 
             logits, probs = model(q1, q2)
             loss = criterion(logits, labels)
             running_loss += loss.item()
             running_accuracy += utils.correct_predictions(probs, labels)
             all_prob.extend(probs[:,1].cpu().numpy())
-            all_labels.extend(label)
+            all_labels.extend(labels)
 
     epoch_time = time.time() - epoch_start
     epoch_loss = running_loss / len(dataloader)
@@ -110,7 +117,8 @@ def validate(model, dataloader, criterion):
 
 
 
-def main(train_file, dev_file, embeddings_file, vocab_file, target_dir, 
+# def main(train_file, dev_file, embeddings_file, vocab_file, target_dir,  
+def main(train_file, dev_file, embeddings_file, target_dir,  
          max_length=50,
          epochs=50,
          batch_size=256,
@@ -128,15 +136,15 @@ def main(train_file, dev_file, embeddings_file, vocab_file, target_dir,
 
     # -------------------- Data loading ------------------- #
     print("\t* Loading training data...")
-    train_data = LCQMC_Dataset(train_file, vocab_file, max_length)
-    train_loader = DataLoader(train_data, shuffle=True, batch_size=batch_size)
+    train_dataset = Mydataset(train_file, False)
+    train_iter = BucketIterator(train_dataset, train=True, batch_size=128, device=device, sort_within_batch=False, sort=False, repeat=False)
     print("\t* Loading validation data...")
-    dev_data = LCQMC_Dataset(dev_file, vocab_file, max_length)
-    dev_loader = DataLoader(dev_data, shuffle=True, batch_size=batch_size)
+    valid_dataset = Mydataset(dev_file, False)
+    valid_iter = Iterator(valid_dataset, train=False, batch_size=128, device=device, sort_within_batch=False, sort=False, repeat=False)
 
     # -------------------- Model definition ------------------- #
     print("\t* Building model...")
-    embeddings = load_embeddings(embeddings_file)
+    embeddings = utils.load_embeddings(embeddings_file)
     model = ABCNN(embeddings, device=device).to(device)
 
     # -------------------- Preparation for training  ------------------- #
@@ -167,8 +175,8 @@ def main(train_file, dev_file, embeddings_file, vocab_file, target_dir,
         valid_losses = checkpoint["valid_losses"]
 
     # Compute loss and accuracy before starting (or resuming) training.
-    _, valid_loss, valid_accuracy, auc = validate(model, dev_loader, criterion)
-    print("\t* Validation loss before training: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}".format(valid_loss, (valid_accuracy*100), auc))
+    # _, valid_loss, valid_accuracy, auc = validate(model, valid_iter, criterion)
+    # print("\t* Validation loss before training: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}".format(valid_loss, (valid_accuracy*100), auc))
 
     # -------------------- Training epochs ------------------- #
     print("\n", 20 * "=", "Training ABCNN model on device: {}".format(device), 20 * "=")
@@ -178,13 +186,14 @@ def main(train_file, dev_file, embeddings_file, vocab_file, target_dir,
 
         # train
         print("* Training epoch {}:".format(epoch))
-        epoch_time, epoch_loss, epoch_accuracy = train(model, train_loader, optimizer, criterion, epoch, max_grad_norm)
+        # epoch_time, epoch_loss, epoch_accuracy = train(model, train_loader, optimizer, criterion, epoch, max_grad_norm)
+        epoch_time, epoch_loss, epoch_accuracy = train(model, train_iter, optimizer, criterion, epoch, max_grad_norm)
         train_losses.append(epoch_loss)
         print("-> Training time: {:.4f}s, loss = {:.4f}, accuracy: {:.4f}%".format(epoch_time, epoch_loss, (epoch_accuracy*100)))
 
         # eval
         print("* Validation for epoch {}:".format(epoch))
-        epoch_time, epoch_loss, epoch_accuracy, epoch_auc= validate(model, dev_loader, criterion)
+        epoch_time, epoch_loss, epoch_accuracy, epoch_auc= validate(model, valid_iter, criterion)
         valid_losses.append(epoch_loss)
         print("-> Valid. time: {:.4f}s, loss: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}\n".format(epoch_time, epoch_loss, (epoch_accuracy*100), epoch_auc))
         
@@ -210,6 +219,9 @@ def main(train_file, dev_file, embeddings_file, vocab_file, target_dir,
             print("-> Early stopping: patience limit reached, stopping...")
             break
     
+
 if __name__ == "__main__":
-    
-    main("../data/LCQMC_train.csv","../data/LCQMC_dev.csv", "../data/token_vec_300.bin", "../data/vocab.txt", "./ckpts")
+    train_file = '../data/train.jsonl'
+    dev_file = '../data/dev.jsonl'
+    embeddings_file = "../data/glove.6B.100d.txt"
+    main(train_file, dev_file, embeddings_file, "./ckpts")

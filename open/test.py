@@ -11,6 +11,12 @@ from sys import platform
 from data import LCQMC_Dataset, load_embeddings
 from abcnn import ABCNN
 
+import os
+import sys
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(BASE_DIR, '../'))
+from dataProcess import TEXT_Field, LABEL_Field, LENGTH_Field, construct_dataset, Mydataset
+
 
 
 def test(model, dataloader):
@@ -32,7 +38,7 @@ def test(model, dataloader):
     accuracy = 0.0
     all_prob = []
     all_labels = []
-    
+
     # Deactivate autograd for evaluation.
     with torch.no_grad():
         for (q, _, h, _, label) in dataloader:
