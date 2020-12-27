@@ -9,6 +9,7 @@ import utils
 
 # from data import load_embeddings
 from abcnn import ABCNN
+from bimpm import BIMPM
 from torchtext import data, vocab
 from torchtext.data import Iterator, BucketIterator
 
@@ -127,9 +128,12 @@ def main(train_file, dev_file, embeddings_file, target_dir,
          patience=5,
          max_grad_norm=10.0,
          gpu_index=0,
-         checkpoint=None):
+         checkpoint=None,
+         model_name='ABCNN'):
 
-    device = torch.device("cuda:{}".format(gpu_index) if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1")
+    # device= torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda:{}".format(gpu_index) if torch.cuda.is_available() else "cpu")
     print(20 * "=", " Preparing for training ", 20 * "=")
     # save checkpoints
     if not os.path.exists(target_dir):
@@ -147,7 +151,10 @@ def main(train_file, dev_file, embeddings_file, target_dir,
     # -------------------- Model definition ------------------- #
     print("\t* Building model...")
     embeddings = utils.load_embeddings(embeddings_file)
-    model = ABCNN(embeddings, device=device).to(device)
+    if model_name == 'ABCNN':
+        model = ABCNN(embeddings, device=device).to(device)
+    elif model_name == 'BIMPM':
+        model = BIMPM(embeddings, device=device).to(device)
 
     # -------------------- Preparation for training  ------------------- #
     criterion = nn.CrossEntropyLoss()
@@ -226,4 +233,4 @@ if __name__ == "__main__":
     train_file = '../datafile/train.jsonl'
     dev_file = '../datafile/dev.jsonl'
     embeddings_file = "../datafile/glove.6B.100d.txt"
-    main(train_file, dev_file, embeddings_file, "./ckpts", gpu_index=1)
+    main(train_file, dev_file, embeddings_file, "./ckpts", gpu_index=2, model_name='ABCNN')
