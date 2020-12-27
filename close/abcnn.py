@@ -7,7 +7,7 @@ import numpy as np
 
 class ABCNN(nn.Module):
     
-    def __init__(self, embeddings, num_layer=1, linear_size=300, max_length=500, device="gpu"):
+    def __init__(self, embeddings, num_layer=1, linear_size=300, max_length=300, device="gpu"):
         super(ABCNN, self).__init__()
         self.device = device
         self.embeds_dim = embeddings.shape[1]
@@ -30,43 +30,23 @@ class ABCNN(nn.Module):
     def forward(self, q1, q2):
         B, L1 = q1.shape
         B, L2 = q2.shape
-        new_q1_matrix = np.zeros((B, self.max_length), dtype=np.long)
-        new_q2_matrix = np.zeros((B, self.max_length), dtype=np.long)
-        for idx in range(B):
-            cur_q1 = q1[idx]
-            cur_q2 = q2[idx]
-            if L1 < self.max_length:
-                zeros = np.zeros((self.max_length - L1))
-                new_q1 = np.concatenate([cur_q1, zeros])
-                new_q1_matrix[idx] = new_q1
-            elif L1 > self.max_length:
-                new_q1 = cur_q1[0: self.max_length]
-                new_q1_matrix[idx] = new_q1
-            if L2 < self.max_length:
-                zeros = np.zeros((self.max_length - L2))
-                new_q2 = np.concatenate([cur_q2, zeros])
-                new_q2_matrix[idx] = new_q2
-            elif L2 > self.max_length:
-                new_q2 = cur_q2[0: self.max_length]
-                new_q2_matrix[idx] = new_q2
-        new_q1_matrix = torch.tensor(new_q1_matrix).to(self.device)
-        new_q2_matrix = torch.tensor(new_q1_matrix).to(self.device)
-        q1 = new_q1_matrix
-        q2 = new_q2_matrix
-            
+        if L1 < self.max_length:
+            zeros = torch.tensor(np.zeros((B, self.max_length - L1), dtype=np.long)).to(self.device)
+            q1 = torch.cat((q1, zeros), dim=1)
+        else: 
+            q1 = q1[:, 0: self.max_length]
+        if L2 < self.max_length:
+            zeros = torch.tensor(np.zeros((B, self.max_length - L2), dtype=np.long)).to(self.device)
+            q2 = torch.cat((q2, zeros), dim=1)
+        else: 
+            q2 = q2[:, 0: self.max_length]
 
         mask1, mask2 = q1.eq(0), q2.eq(0)
         res = [[], []]
         q1_encode = self.embed(q1)
         q2_encode = self.embed(q2)
         
-        
 
-
-        # print('mask1: ', mask1.shape)
-        # print('mask2: ', mask2.shape)
-        # print('q1_encode: ', q1_encode.shape)
-        # print('q2_encode: ', q2_encode.shape)
         # eg: s1 => res[0]
         # (batch_size, seq_len, dim) => (batch_size, dim)
         # if num_layer == 0

@@ -93,10 +93,11 @@ def validate(model, dataloader, criterion):
     running_accuracy = 0.0
     all_prob = []
     all_labels = []
+    tqdm_batch_iterator = tqdm(dataloader)
 
     # Deactivate autograd for evaluation.
     with torch.no_grad():
-        for batch_idx, batch_data in enumerate(dataloader):
+        for batch_idx, batch_data in enumerate(tqdm_batch_iterator):
             # Move input and output data to the GPU if one is used.
             q1 = batch_data.question.to(device)
             q2 = batch_data.passage.to(device)
@@ -121,7 +122,7 @@ def validate(model, dataloader, criterion):
 def main(train_file, dev_file, embeddings_file, target_dir,  
          max_length=50,
          epochs=50,
-         batch_size=256,
+         batch_size=128,
          lr=0.0005,
          patience=5,
          max_grad_norm=10.0,
@@ -138,10 +139,10 @@ def main(train_file, dev_file, embeddings_file, target_dir,
     print("\t* Loading training data...")
     train_dataset = Mydataset(train_file, False)
     TEXT_Field.build_vocab(train_dataset, vectors=vocab.Vectors(embeddings_file))
-    train_iter = BucketIterator(train_dataset, train=True, batch_size=128, device=device, sort_within_batch=False, sort=False, repeat=False)
+    train_iter = BucketIterator(train_dataset, train=True, batch_size=batch_size, device=device, sort_within_batch=False, sort=False, repeat=False)
     print("\t* Loading validation data...")
     valid_dataset = Mydataset(dev_file, False)
-    valid_iter = Iterator(valid_dataset, train=False, batch_size=128, device=device, sort_within_batch=False, sort=False, repeat=False)
+    valid_iter = Iterator(valid_dataset, train=False, batch_size=batch_size, device=device, sort_within_batch=False, sort=False, repeat=False)
 
     # -------------------- Model definition ------------------- #
     print("\t* Building model...")
