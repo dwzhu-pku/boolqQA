@@ -6,13 +6,16 @@
 
 import json
 from torchtext import data,vocab
-from torchtext.data import Iterator, BucketIterator,Dataset #后者自动选取样本长度相似的数据来构建批数据。但是在测试集中一般不想改变样本顺序，因此测试集使用Iterator迭代器来构建。
+from torchtext.data import Iterator, BucketIterator #后者自动选取样本长度相似的数据来构建批数据。但是在测试集中一般不想改变样本顺序，因此测试集使用Iterator迭代器来构建。
 import torch
 import os
 import torch.nn as nn
 from nltk.tokenize import wordpunct_tokenize
 import time
 
+import torch.utils.data
+
+from transformers import BertTokenizer,BertForSequenceClassification,AdamW
  
 
 # 以下定义两个Field,Text-Field use vocab=true在生成迭代器的时候，将文本自动转化为vocab中的id，而label本身就是int 不需要numericalize，所以use vocab=false
@@ -22,7 +25,7 @@ LENGTH_Field = data.Field(sequential = False, use_vocab = False, batch_first = T
 
 
 #一个封装好的Dataset类，用于torchtext做相应的field处理
-class Mydataset(Dataset):
+class Mydataset(data.Dataset):
 
     def __init__(self,datafile, is_test,**kwargs):
         
@@ -49,20 +52,76 @@ class Mydataset(Dataset):
         return self.examples[index]
 
 
+
+
+class Mydataset_for_bert(torch.utils.data.Dataset):
+
+    def __init__(self,filename,max_length_psg = 256,max_length_qst = 25):#bert的最大长度为512
+        
+        self.data_bert = []
+        with open(filename, "r", encoding='utf-8') as rfd:
+            for data_line in rfd:
+                data_json = json.loads(data_line)
+                self.data_bert.append(data_json)
+
+        self.max_length_psg = max_length_psg
+        self.max_length_qst = max_length_qst
+        self.tokenizer=BertTokenizer.from_pretrained('bert-base-uncased')
+
+    
+    def __len__(self):
+        return len(self.data_bert)
+    
+    
+    def __getitem__(self,index):
+        data_json = self.data_bert[index]
+        psg = data_json['passage']
+        qst = data_json['question']
+        label = data_json['answer']
+
+        psg = self.tokenizer(psg)
+        ids_psg = psg['input_ids']
+        msk_psg = psg['attention_mask']
+
+        qst = self.tokenizer(qst)
+        ids_qst = qst['input_ids']
+        msk_qst = qst['attention_mask']
+
+        if len(ids_psg)<self.max_length_psg:
+            msk_psg.extend([0] * (self.max_length_psg - len(msk_psg)))
+            ids_psg.extend([0] * (self.max_length_psg - len(ids_psg)))
+        else: 
+            ids_psg = ids_psg[:self.max_length_psg]
+            msk_psg = msk_psg[:self.max_length_psg]
+        
+
+        if len(ids_qst)<self.max_length_qst:
+            ids_qst.extend([0] * (self.max_length_qst - len(ids_qst)))
+            msk_qst.extend([0] * (self.max_length_qst - len(msk_qst)))
+        else:
+            ids_qst = ids_qst[:self.max_length_qst]
+            msk_qst = msk_qst[:self.max_length_qst]
+
+        return torch.LongTensor(ids_psg),torch.LongTensor(msk_psg), torch.LongTensor(ids_qst), torch.LongTensor(msk_qst),int(label)
+
+
+
+
+
 # 加载验证集和训练集。测试集相关部分有待补充
 def construct_dataset():
-    train_data,valid_data = Mydataset('./train.jsonl',False),Mydataset('./dev.jsonl',False)
+    train_data,valid_data = Mydataset('../datafile/train.jsonl',False),Mydataset('../datafile/dev.jsonl',False)
     return train_data,valid_data
 
 
 if __name__ == "__main__":
     
-    GLOVE_PATH = "../data/glove.6B.100d.txt" # 全局变量，指向预训练词向量
+    GLOVE_PATH = "../datafile/glove.6B.100d.txt" # 全局变量，指向预训练词向量
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     s=time.time()
     train_data,valid_data = construct_dataset()
-    if not os.path.exists("../data/.vector_cache"):
-        os.mkdir("../data/.vector_cache")
+    if not os.path.exists("../datafile/.vector_cache"):
+        os.mkdir("../datafile/.vector_cache")
     TEXT_Field.build_vocab(train_data, vectors=vocab.Vectors(GLOVE_PATH)) #由train_dataset构建映射关系,vocab是属于field的信息
     vocab = TEXT_Field.vocab
     print(len(vocab))

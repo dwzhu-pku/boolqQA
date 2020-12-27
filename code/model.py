@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import BertModel
 #freeze
 class LSTM_ATTN(nn.Module):
-    def __init__(self,vocab,requires_gard,hidden_size1,hidden_size2,output_size,dropout,batch_size,device):
+    def __init__(self,vocab,requires_gard,hidden_size1,hidden_size2,output_size,dropout,device):
         """
         parameters:全部都是网络相关的超参数 和数据本身无关
         input_size：也就是预训练的词向量的size
@@ -64,4 +65,32 @@ class LSTM_ATTN(nn.Module):
         outputs = self.linear2(outputs)
 
         return outputs 
+
+class BERT(nn.Module):
+    def __init__(self,dropout,device):
+        super(BERT,self).__init__()
+    
+        self.dropout_layer = nn.Dropout(dropout).to(device)
+        hidden_size = 768 * 2#concat
+        self.linear = nn.Linear(hidden_size,2).to(device)
+
+        self.bert = BertModel.from_pretrained('bert-base-uncased').to(device)
+    
+
+    def forward_single(self,ids,msk):
+        hidden = self.bert(input_ids = ids,attention_mask = msk)[1] #1得到的是sentence encoding
+
+        hidden = torch.relu(hidden)
+        return hidden
+    def forward(self,ids_psg,msk_psg,ids_qst,msk_qst,is_train):
+        hidden_psg = self.forward_single(ids_psg,msk_psg)
+        hidden_qst = self.forward_single(ids_qst,msk_qst)
+
+        inputs = torch.cat((hidden_psg,hidden_qst), dim=1)
+        if is_train:
+            inputs = self.dropout_layer(inputs)
+        outputs = self.linear(inputs)
+
+        return outputs
+
 
