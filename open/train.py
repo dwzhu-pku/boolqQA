@@ -137,6 +137,7 @@ def main(train_file, dev_file, embeddings_file, target_dir,
     # -------------------- Data loading ------------------- #
     print("\t* Loading training data...")
     train_dataset = Mydataset(train_file, False)
+    TEXT_Field.build_vocab(train_dataset, vectors=vocab.Vectors(embeddings_file))
     train_iter = BucketIterator(train_dataset, train=True, batch_size=128, device=device, sort_within_batch=False, sort=False, repeat=False)
     print("\t* Loading validation data...")
     valid_dataset = Mydataset(dev_file, False)
@@ -175,8 +176,8 @@ def main(train_file, dev_file, embeddings_file, target_dir,
         valid_losses = checkpoint["valid_losses"]
 
     # Compute loss and accuracy before starting (or resuming) training.
-    # _, valid_loss, valid_accuracy, auc = validate(model, valid_iter, criterion)
-    # print("\t* Validation loss before training: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}".format(valid_loss, (valid_accuracy*100), auc))
+    _, valid_loss, valid_accuracy, auc = validate(model, valid_iter, criterion)
+    print("\t* Validation loss before training: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}".format(valid_loss, (valid_accuracy*100), auc))
 
     # -------------------- Training epochs ------------------- #
     print("\n", 20 * "=", "Training ABCNN model on device: {}".format(device), 20 * "=")
@@ -221,7 +222,7 @@ def main(train_file, dev_file, embeddings_file, target_dir,
     
 
 if __name__ == "__main__":
-    train_file = '../data/train.jsonl'
-    dev_file = '../data/dev.jsonl'
-    embeddings_file = "../data/glove.6B.100d.txt"
+    train_file = '../datafile/train.jsonl'
+    dev_file = '../datafile/dev.jsonl'
+    embeddings_file = "../datafile/glove.6B.100d.txt"
     main(train_file, dev_file, embeddings_file, "./ckpts")

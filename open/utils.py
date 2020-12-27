@@ -13,7 +13,7 @@ from sklearn.metrics import roc_auc_score
 
 def load_embeddings(embedding_path):
     # 将 glove 转换为 word2vec
-    word2vec_path = "../data/test_word2vec.txt"
+    word2vec_path = "../datafile/test_word2vec.txt"
     if not os.path.exists(word2vec_path):
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         glove_file = datapath(os.path.join(BASE_DIR, embedding_path))

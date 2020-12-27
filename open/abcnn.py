@@ -3,10 +3,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 class ABCNN(nn.Module):
     
-    def __init__(self, embeddings, num_layer=1, linear_size=300, max_length=50, device="gpu"):
+    def __init__(self, embeddings, num_layer=1, linear_size=300, max_length=500, device="gpu"):
         super(ABCNN, self).__init__()
         self.device = device
         self.embeds_dim = embeddings.shape[1]
@@ -17,6 +18,7 @@ class ABCNN(nn.Module):
         self.embed.to(device)
         self.linear_size = linear_size
         self.num_layer = num_layer
+        self.max_length = max_length
         self.conv = nn.ModuleList([Wide_Conv(max_length, embeddings.shape[1], device) for _ in range(self.num_layer)])
         self.fc = nn.Sequential(
             nn.Linear(self.embeds_dim*(1+self.num_layer)*2, self.linear_size),
@@ -26,10 +28,45 @@ class ABCNN(nn.Module):
         )
 
     def forward(self, q1, q2):
+        B, L1 = q1.shape
+        B, L2 = q2.shape
+        new_q1_matrix = np.zeros((B, self.max_length), dtype=np.long)
+        new_q2_matrix = np.zeros((B, self.max_length), dtype=np.long)
+        for idx in range(B):
+            cur_q1 = q1[idx]
+            cur_q2 = q2[idx]
+            if L1 < self.max_length:
+                zeros = np.zeros((self.max_length - L1))
+                new_q1 = np.concatenate([cur_q1, zeros])
+                new_q1_matrix[idx] = new_q1
+            elif L1 > self.max_length:
+                new_q1 = cur_q1[0: self.max_length]
+                new_q1_matrix[idx] = new_q1
+            if L2 < self.max_length:
+                zeros = np.zeros((self.max_length - L2))
+                new_q2 = np.concatenate([cur_q2, zeros])
+                new_q2_matrix[idx] = new_q2
+            elif L2 > self.max_length:
+                new_q2 = cur_q2[0: self.max_length]
+                new_q2_matrix[idx] = new_q2
+        new_q1_matrix = torch.tensor(new_q1_matrix).to(self.device)
+        new_q2_matrix = torch.tensor(new_q1_matrix).to(self.device)
+        q1 = new_q1_matrix
+        q2 = new_q2_matrix
+            
+
         mask1, mask2 = q1.eq(0), q2.eq(0)
         res = [[], []]
         q1_encode = self.embed(q1)
         q2_encode = self.embed(q2)
+        
+        
+
+
+        # print('mask1: ', mask1.shape)
+        # print('mask2: ', mask2.shape)
+        # print('q1_encode: ', q1_encode.shape)
+        # print('q2_encode: ', q2_encode.shape)
         # eg: s1 => res[0]
         # (batch_size, seq_len, dim) => (batch_size, dim)
         # if num_layer == 0
@@ -65,6 +102,8 @@ class Wide_Conv(nn.Module):
         '''
         # sent1, sent2 = sent1.transpose(0, 1), sent2.transpose(0, 1)
         # => A: batch_size * seq_len * seq_len
+        # print("sent1: ", sent1.shape)
+        # print("sent2: ", sent2.shape)
         A = match_score(sent1, sent2, mask1, mask2)
         # attn_feature_map1: batch_size * seq_len * dim
         attn_feature_map1 = A.matmul(self.W)
@@ -81,11 +120,16 @@ def match_score(s1, s2, mask1, mask2):
     '''
     s1, s2:  batch_size * seq_len  * dim
     '''
-    batch, seq_len, dim = s1.shape
+    batch, seq_len1, dim1 = s1.shape
+    batch, seq_len2, dim2 = s2.shape
     s1 = s1 * mask1.eq(0).unsqueeze(2).float()
     s2 = s2 * mask2.eq(0).unsqueeze(2).float()
-    s1 = s1.unsqueeze(2).repeat(1, 1, seq_len, 1)
-    s2 = s2.unsqueeze(1).repeat(1, seq_len, 1, 1)
+    # print("Asent1: ", s1.shape)
+    # print("Asent2: ", s2.shape)
+    s1 = s1.unsqueeze(2).repeat(1, 1, seq_len2, 1)
+    s2 = s2.unsqueeze(1).repeat(1, seq_len1, 1, 1)
+    # print("Bsent1: ", s1.shape)
+    # print("Bsent2: ", s2.shape)
     a = s1 - s2
     a = torch.norm(a, dim=-1, p=2)
     return 1.0 / (1.0 + a)
@@ -101,4 +145,3 @@ def attention_avg_pooling(sent1, sent2, mask1, mask2):
     s2 = F.avg_pool1d(s2.transpose(1, 2), kernel_size=3, padding=1, stride=1)
     s1, s2 = s1.transpose(1, 2), s2.transpose(1, 2)
     return s1, s2
-    
