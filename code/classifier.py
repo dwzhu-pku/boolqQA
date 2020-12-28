@@ -7,21 +7,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-from model import LSTM_ATTN,BERT
+from model import LSTM_ATTN,BERT,ABCNN,BIMPM
 
 from torchtext import data,vocab
 from torchtext.data import Iterator, BucketIterator
 from dataProcess import TEXT_Field,LABEL_Field,LENGTH_Field,Mydataset,Mydataset_for_bert
-from transformers import AdamW
 
 
 class classify():
-    def __init__(self,epoch_num,lr,device,GLOVE_PATH = "../datafile/glove.6B.100d.txt"):
+    def __init__(self,pattern,epoch_num,batch_size,lr,device,GLOVE_PATH = "../datafile/glove.6B.100d.txt"):
+        self.pattern = pattern
         self.epoch_num = epoch_num
         self.lr = lr
         self.device = device
-
+        self.batch_size = batch_size
         
         self.train_dataset = Mydataset('../datafile/train.jsonl',False)
         self.valid_dataset = Mydataset('../datafile/dev.jsonl',False)
@@ -33,47 +34,57 @@ class classify():
             os.mkdir("../datafile/.vector_cache")
         TEXT_Field.build_vocab(self.train_dataset, vectors=vocab.Vectors(GLOVE_PATH))
         self.vocab = TEXT_Field.vocab
-        self.lstm_attn = LSTM_ATTN(
-            vocab = self.vocab, requires_gard = True, hidden_size1 = 128, hidden_size2 = 64, output_size = 2, dropout = 0.3,device = device
-            )
-        
-        self.bert = BERT(
-            dropout=0.3,device=device
-        )
-        self.criterion =nn.CrossEntropyLoss()
+    
 
+        if pattern=='lstm_attn':
+            self.network = LSTM_ATTN(vocab = self.vocab, requires_gard = True, hidden_size1 = 128, hidden_size2 = 64, output_size = 2, dropout = 0.3,device = device)
+        elif pattern=='abcnn':
+            self.network = ABCNN(vocab=self.vocab,requires_gard = True,num_layer=1, linear_size=300, max_length=300, device = device)
+        elif pattern =='bert':
+            self.network = BERT(dropout=0.3,device=device)
+        elif pattern=='bimpm':
+            self.network = BIMPM(vocab=self.vocab, requires_gard=True, hidden_size=100, num_perspective=20, class_size=2, device=device)
 
-    def train(self,model):
+    def train(self):
         s = time.time()
         print('start training,lr=',self.lr)
-        accu = 0#用来保存目前的最大值
 
+        #用来保存目前的最大值
+        accu = 0
+
+        #choose the iter by pattern
         train_iter = None
-        if model=='bert':
-            train_iter = DataLoader(dataset=self.train_dataset_for_bert,batch_size=32,shuffle=True)
+        if self.pattern=='bert':
+            train_iter = DataLoader(dataset=self.train_dataset_for_bert,batch_size=self.batch_size,shuffle=True)
         else:
             train_iter = BucketIterator(
-                self.train_dataset,train = True,batch_size = 128,device=self.device,sort_within_batch=False,sort = False,repeat=False
+                self.train_dataset,train = True,batch_size = self.batch_size,device=self.device,sort_within_batch=False,sort = False,repeat=False
             )
+    
+        #choose the optimizer towards related network
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, self.network.parameters()),lr = self.lr)
+        #decide how the optimizer updates
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.7, patience=2)
 
-        optimizer = None
-        if model=='lstm_attn':
-            optimizer = torch.optim.Adam(self.lstm_attn.parameters(),lr=self.lr)
-        elif model =='bert':
-            optimizer = AdamW(self.bert.parameters(),lr = self.lr)
+        criterion =nn.CrossEntropyLoss()
+        
 
         for epoch in range(self.epoch_num):
+            self.network.train()
             loss_sum = 0
-            for iteration,batch_data in enumerate(train_iter):#按照batch给出
-                optimizer.zero_grad()
 
-                if model == "lstm_attn":
+            tqdm_iterator = tqdm(train_iter)
+            for iteration,batch_data in enumerate(tqdm_iterator):#按照batch给出
+                optimizer.zero_grad()
+                #torch.cuda.empty_cache()
+                #不同pattern选用不同的dataset因此返回的batch_data的格式也不相同
+                if self.pattern == "lstm_attn" or self.pattern=='abcnn' or self.pattern=='bimpm':
                     ids_psg = batch_data.passage.to(self.device)
                     ids_qst = batch_data.question.to(self.device)
                     lens_psg = batch_data.len_passage.to(self.device)
                     lens_qst = batch_data.len_question.to(self.device)
                     labels = batch_data.label.to(self.device)
-                elif model=='bert':
+                elif self.pattern=='bert':
                     ids_psg,msk_psg,ids_qst,msk_qst,labels = batch_data
                     ids_psg=ids_psg.to(self.device)
                     msk_psg = msk_psg.to(self.device)
@@ -81,51 +92,60 @@ class classify():
                     msk_qst = msk_qst.to(self.device)
                     labels = labels.to(self.device)
 
-                if model=='lstm_attn':
-                    outputs = self.lstm_attn.forward(ids_psg = ids_psg,ids_qst=ids_qst,lens_psg=lens_psg,lens_qst=lens_qst,is_train=True)
-                elif model =='bert':
-                    outputs = self.bert.forward(ids_psg=ids_psg,msk_psg=msk_psg,ids_qst=ids_qst,msk_qst=msk_qst,is_train=True)
+                if self.pattern=='lstm_attn':
+                    outputs = self.network.forward(ids_psg = ids_psg,ids_qst=ids_qst,lens_psg=lens_psg,lens_qst=lens_qst)
+                elif self.pattern =='bert':
+                    outputs = self.network.forward(ids_psg=ids_psg,msk_psg=msk_psg,ids_qst=ids_qst,msk_qst=msk_qst)
+                elif self.pattern=='abcnn':
+                    outputs = self.network.forward(q1=ids_qst,q2=ids_psg)
+                elif self.pattern=='bimpm':
+                    outputs = self.network.forward(q1=ids_qst,q2=ids_psg)
 
-                loss=self.criterion(outputs,labels)
+
+                loss=criterion(outputs,labels)
                 loss_sum+=loss.item()#这里加item避免重复梯度下降
                 loss.backward()
                 optimizer.step()
 
                 
-            
             print('epoch',epoch,'finished 耗时:',(time.time()-s)/60,'min. loss：',loss_sum)
 
             print('result for valid:')
-            temp_result = self.eval(model=model,need_load=False)
-            
-            if temp_result>accu:
-                self.save_parameter(model)#已保存
-                accu=temp_result
+            epoch_accu = self.eval(need_load=False)
+
+            scheduler.step(epoch_accu)
+            if epoch_accu > accu:
+                self.save_parameter()#已保存
+                accu=epoch_accu
             
     
 
-    def eval(self,model,need_load):
+    def eval(self,need_load):
         if need_load==True:#如果需要，则load
-            self.load_parameter(model=model)
+            self.load_parameter()
+        self.network.eval()
         valid_iter = None
-        if model=='bert':
-            valid_iter = DataLoader(dataset=self.valid_dataset_for_bert,batch_size=32)
+        if self.pattern=='bert':
+            valid_iter = DataLoader(dataset=self.valid_dataset_for_bert,batch_size=self.batch_size)
         else:
             valid_iter=Iterator(
-                self.valid_dataset,train = False,batch_size = 128,device=self.device,sort_within_batch=False,sort = False,repeat=False
+                self.valid_dataset,train = False,batch_size = self.batch_size,device=self.device,sort_within_batch=False,sort = False,repeat=False
             )
-        
         TP,TN,FP,FN = 0,0,0,0
+
+
+        tqdm_iterator = tqdm(valid_iter)
         with torch.no_grad():
-            for iteration,batch_data in enumerate(valid_iter):#按照batch给出
+            for iteration,batch_data in enumerate(tqdm_iterator):#按照batch给出
                 
-                if model == "lstm_attn":
+                #不同pattern选用不同的dataset因此返回的batch_data的格式也不相同
+                if self.pattern == "lstm_attn" or self.pattern=='abcnn' or self.pattern=='bimpm':
                     ids_psg = batch_data.passage.to(self.device)
                     ids_qst = batch_data.question.to(self.device)
                     lens_psg = batch_data.len_passage.to(self.device)
                     lens_qst = batch_data.len_question.to(self.device)
                     labels = batch_data.label.to(self.device)
-                elif model=='bert':
+                elif self.pattern=='bert':
                     ids_psg,msk_psg,ids_qst,msk_qst,labels = batch_data
                     ids_psg=ids_psg.to(self.device)
                     msk_psg = msk_psg.to(self.device)
@@ -133,14 +153,22 @@ class classify():
                     msk_qst = msk_qst.to(self.device)
                     labels = labels.to(self.device)
 
-                batch_size = ids_psg.size(0)
+                
+
+                if self.pattern=='lstm_attn':
+                    outputs = self.network.forward(ids_psg = ids_psg,ids_qst=ids_qst,lens_psg=lens_psg,lens_qst=lens_qst)
+                elif self.pattern =='bert':
+                    outputs = self.network.forward(ids_psg=ids_psg,msk_psg=msk_psg,ids_qst=ids_qst,msk_qst=msk_qst)
+                elif self.pattern=='abcnn':
+                    outputs = self.network.forward(q1=ids_qst,q2=ids_psg)
+                elif self.pattern=='bimpm':
+                    outputs = self.network.forward(q1=ids_qst,q2=ids_psg)
+
+
+                #根据对应规模的batch 累加计算
+                batch_size = labels.size(0)
                 ones = torch.ones(batch_size,dtype=torch.long).to(self.device)
                 zeros = torch.zeros(batch_size,dtype=torch.long).to(self.device)#必须是long类型的才可以
-            
-                if model=='lstm_attn':
-                    outputs = self.lstm_attn.forward(ids_psg = ids_psg,ids_qst=ids_qst,lens_psg=lens_psg,lens_qst=lens_qst,is_train= False)
-                elif model =='bert':
-                    outputs = self.bert.forward(ids_psg=ids_psg,msk_psg=msk_psg,ids_qst=ids_qst,msk_qst=msk_qst,is_train=False)
 
                 pred = outputs.argmax(dim=1)
                 TP += ((pred==ones)&(labels==ones)).sum()
@@ -155,24 +183,18 @@ class classify():
         print('P: ',P,' R: ',R,' F1:',F1,' accu: ',accu)
         return accu
 
-    def save_parameter(self,model):
-        filename = '/home/wzr/hw3/parameter/'+model+'_parameter.pth'
-        if model=='lstm_attn':
-            torch.save(self.lstm_attn.state_dict(),filename)
-        elif model=='bert':
-            torch.save(self.bert.state_dict(),filename)
+    def save_parameter(self):
+        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        torch.save(self.network.state_dict(),filename)
+
+    def load_parameter(self):
+        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        self.network.load_state_dict(torch.load(filename))
 
 
-    def load_parameter(self,model):
-        filename = '/home/wzr/hw3/parameter/'+model+'_parameter.pth'
-        if model=='lstm_attn':
-            self.lstm_attn.load_state_dict(torch.load(filename))
-        elif model=='bert':
-            self.bert.load_state_dict(torch.load(filename))
-    
     """
-    def inference(self,model):
-        self.load_parameter(model=model)
+    def inference(self,pattern):
+        self.load_parameter(pattern=pattern)
         data_loader = DataLoader(self.test_dataset,batch_size=100)#可以整除
         result = []
         with torch.no_grad():
@@ -181,7 +203,7 @@ class classify():
                 label = torch.LongTensor(label).to(self.device)
                 length = torch.LongTensor(length).to(self.device)
             
-                if model=='lstm_attn':
+                if pattern=='lstm_attn':
                     outputs = self.lstm_attn.forward(ids=ids,lengths = length,is_train=False)
 
                 pred = outputs.argmax(dim=1)#此时的结果是batch的

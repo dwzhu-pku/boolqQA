@@ -15,7 +15,7 @@ import time
 
 import torch.utils.data
 
-from transformers import BertTokenizer,BertForSequenceClassification,AdamW
+from transformers import BertTokenizer,BertForSequenceClassification,AdamW,BertModel
  
 
 # 以下定义两个Field,Text-Field use vocab=true在生成迭代器的时候，将文本自动转化为vocab中的id，而label本身就是int 不需要numericalize，所以use vocab=false
@@ -39,11 +39,7 @@ class Mydataset(data.Dataset):
                 data_json = json.loads(data_line)
                 len_passage = len(wordpunct_tokenize(data_json['passage'])) + 2
                 len_question = len(wordpunct_tokenize(data_json['question'])) + 2#<sos>和<eos>
-                if is_test:
-                    label = None
-                else: 
-                    label = data_json['answer']
-                # label = None if is_test else data_json['answer']
+                label = None if is_test else data_json['answer']
                 self.examples.append(data.Example.fromlist([data_json['passage'], data_json['question'], len_passage, len_question, label], fields))
 
         super(Mydataset, self).__init__(self.examples, fields, **kwargs)
@@ -67,6 +63,7 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
             for data_line in rfd:
                 data_json = json.loads(data_line)
                 self.data_bert.append(data_json)
+        
 
         self.max_length_psg = max_length_psg
         self.max_length_qst = max_length_qst
@@ -83,30 +80,20 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
         qst = data_json['question']
         label = data_json['answer']
 
-        psg = self.tokenizer(psg)
-        ids_psg = psg['input_ids']
-        msk_psg = psg['attention_mask']
+        #tokenizer同时做分割和encode到id
+        psg = self.tokenizer(
+            text=psg, add_special_tokens=True, max_length = self.max_length_psg, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt'
+            )
+        ids_psg = torch.squeeze(psg['input_ids'])#要做squeeze,因为tokenizer会默认多一个维度
+        msk_psg = torch.squeeze(psg['attention_mask'])
 
-        qst = self.tokenizer(qst)
-        ids_qst = qst['input_ids']
-        msk_qst = qst['attention_mask']
+        qst = self.tokenizer(
+            text=qst, add_special_tokens=True, max_length = self.max_length_psg, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt'
+            )
+        ids_qst = torch.squeeze(qst['input_ids'])
+        msk_qst = torch.squeeze(qst['attention_mask'])
 
-        if len(ids_psg)<self.max_length_psg:
-            msk_psg.extend([0] * (self.max_length_psg - len(msk_psg)))
-            ids_psg.extend([0] * (self.max_length_psg - len(ids_psg)))
-        else: 
-            ids_psg = ids_psg[:self.max_length_psg]
-            msk_psg = msk_psg[:self.max_length_psg]
-        
-
-        if len(ids_qst)<self.max_length_qst:
-            ids_qst.extend([0] * (self.max_length_qst - len(ids_qst)))
-            msk_qst.extend([0] * (self.max_length_qst - len(msk_qst)))
-        else:
-            ids_qst = ids_qst[:self.max_length_qst]
-            msk_qst = msk_qst[:self.max_length_qst]
-
-        return torch.LongTensor(ids_psg),torch.LongTensor(msk_psg), torch.LongTensor(ids_qst), torch.LongTensor(msk_qst),int(label)
+        return ids_psg,msk_psg, ids_qst, msk_qst,int(label)
 
 
 
