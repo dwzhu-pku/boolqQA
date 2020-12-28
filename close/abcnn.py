@@ -28,7 +28,8 @@ class ABCNN(nn.Module):
         )
 
     def forward(self, q1, q2):
-        B, L1 = q1.shape
+        # question & passage的长度都扩充/截取到max_length
+        B, L1 = q1.shape    
         B, L2 = q2.shape
         if L1 < self.max_length:
             zeros = torch.tensor(np.zeros((B, self.max_length - L1), dtype=np.long)).to(self.device)
@@ -46,7 +47,6 @@ class ABCNN(nn.Module):
         q1_encode = self.embed(q1)
         q2_encode = self.embed(q2)
         
-
         # eg: s1 => res[0]
         # (batch_size, seq_len, dim) => (batch_size, dim)
         # if num_layer == 0
@@ -104,12 +104,8 @@ def match_score(s1, s2, mask1, mask2):
     batch, seq_len2, dim2 = s2.shape
     s1 = s1 * mask1.eq(0).unsqueeze(2).float()
     s2 = s2 * mask2.eq(0).unsqueeze(2).float()
-    # print("Asent1: ", s1.shape)
-    # print("Asent2: ", s2.shape)
     s1 = s1.unsqueeze(2).repeat(1, 1, seq_len2, 1)
     s2 = s2.unsqueeze(1).repeat(1, seq_len1, 1, 1)
-    # print("Bsent1: ", s1.shape)
-    # print("Bsent2: ", s2.shape)
     a = s1 - s2
     a = torch.norm(a, dim=-1, p=2)
     return 1.0 / (1.0 + a)

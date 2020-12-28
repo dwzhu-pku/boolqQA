@@ -39,7 +39,11 @@ class Mydataset(data.Dataset):
                 data_json = json.loads(data_line)
                 len_passage = len(wordpunct_tokenize(data_json['passage'])) + 2
                 len_question = len(wordpunct_tokenize(data_json['question'])) + 2#<sos>和<eos>
-                label = None if is_test else data_json['answer']
+                if is_test:
+                    label = None
+                else: 
+                    label = data_json['answer']
+                # label = None if is_test else data_json['answer']
                 self.examples.append(data.Example.fromlist([data_json['passage'], data_json['question'], len_passage, len_question, label], fields))
 
         super(Mydataset, self).__init__(self.examples, fields, **kwargs)

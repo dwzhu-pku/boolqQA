@@ -8,13 +8,15 @@ from sklearn.metrics import roc_auc_score
 import utils
 
 from sys import platform
-from data import LCQMC_Dataset, load_embeddings
 from abcnn import ABCNN
+from bimpm import BIMPM
+from torchtext import data, vocab
+from torchtext.data import Iterator, BucketIterator
 
 import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(BASE_DIR, '../'))
+sys.path.append(os.path.join(BASE_DIR, '../code'))
 from dataProcess import TEXT_Field, LABEL_Field, LENGTH_Field, construct_dataset, Mydataset
 
 
@@ -35,32 +37,30 @@ def test(model, dataloader):
     device = model.device
     time_start = time.time()
     batch_time = 0.0
-    accuracy = 0.0
     all_prob = []
-    all_labels = []
+    all_pred = []
+    tqdm_batch_iterator = tqdm(dataloader)
 
     # Deactivate autograd for evaluation.
     with torch.no_grad():
-        for (q, _, h, _, label) in dataloader:
+        for batch_idx, batch_data in enumerate(tqdm_batch_iterator):
             batch_start = time.time()
             # Move input and output data to the GPU if one is used.
-            q1 = q.to(device)
-            q2 = h.to(device)
-            labels = label.to(device)
+            q1 = batch_data.question.to(device)
+            q2 = batch_data.passage.to(device)
 
             _, probs = model(q1, q2)
-            accuracy += utils.correct_predictions(probs, labels)
             batch_time += time.time() - batch_start
             all_prob.extend(probs[:,1].cpu().numpy())
-            all_labels.extend(label)
+            _, cur_pred = probs.max(dim=1)
+            all_pred.extend(cur_pred)
 
     batch_time /= len(dataloader)
     total_time = time.time() - time_start
-    accuracy /= (len(dataloader.dataset))
-    return batch_time, total_time, accuracy, roc_auc_score(all_labels, all_prob)
+    return batch_time, total_time, all_prob, all_pred
 
 
-def main(test_file, vocab_file, embeddings_file, pretrained_file, max_length=50, gpu_index=0, batch_size=128):
+def main(train_file, test_file, embeddings_file, pretrained_file, output_path, max_length=50, gpu_index=0, batch_size=128, model_name='ABCNN'):
     
     device = torch.device("cuda:{}".format(gpu_index) if torch.cuda.is_available() else "cpu")
 
@@ -69,22 +69,37 @@ def main(test_file, vocab_file, embeddings_file, pretrained_file, max_length=50,
         checkpoint = torch.load(pretrained_file)
     else:
         checkpoint = torch.load(pretrained_file, map_location=device)
+    
+    fw = open(output_path, 'w')
 
     # Retrieving model parameters from checkpoint.
-    embeddings = load_embeddings(embeddings_file)
+    embeddings = utils.load_embeddings(embeddings_file)
 
     print("\t* Loading test data...")    
-    test_data = LCQMC_Dataset(test_file, vocab_file, max_length)
-    test_loader = DataLoader(test_data, shuffle=True, batch_size=batch_size)
+    train_dataset = Mydataset(train_file, False)
+    TEXT_Field.build_vocab(train_dataset, vectors=vocab.Vectors(embeddings_file))
+    print('test_file: ', test_file)
+    test_dataset = Mydataset(test_file, is_test=True)
+    test_iter = Iterator(test_dataset, train=False, batch_size=batch_size, device=device, sort_within_batch=False, sort=False, repeat=False)
 
     print("\t* Building model...")
-    model = ABCNN(embeddings, device=device).to(device)
+    if model_name == 'ABCNN':
+        model = ABCNN(embeddings, device=device).to(device)
+    elif model_name == 'BIMPM':
+        model = BIMPM(embeddings, device=device).to(device)
     model.load_state_dict(checkpoint["model"])
 
     print(20 * "=", " Testing ABCNN model on device: {} ".format(device), 20 * "=")
-    batch_time, total_time, accuracy, auc = test(model, test_loader)
-    print("\n-> Average batch processing time: {:.4f}s, total test time: {:.4f}s, accuracy: {:.4f}%, auc: {:.4f}\n".format(batch_time, total_time, (accuracy*100), auc))
+    batch_time, total_time, all_prob, all_pred = test(model, test_iter)
+    print("\n-> Average batch processing time: {:.4f}s, total test time: {:.4f}s\n".format(batch_time, total_time))
+    for pred in all_pred:
+        fw.write(str(pred) + '\n')
+    fw.close()
 
 
 if __name__ == "__main__":
-    main("../data/LCQMC_test.csv", "../data/vocab.txt", "../data/token_vec_300.bin", "models/best.pth.tar")
+    train_file = '../datafile/train.jsonl'  # 传入 train_file 是为了建立词表
+    test_file = '../datafile/test.jsonl'
+    embeddings_file = "../datafile/glove.6B.100d.txt"
+    ckpt_pth = './ckpts'
+    main(train_file, test_file, embeddings_file, '%s/best.pth.tar' % ckpt_pth, output_path='%s/test_pred.txt' % ckpt_pth, gpu_index=1, model_name='ABCNN')

@@ -27,6 +27,36 @@ def load_embeddings(embedding_path):
         embedding_matrix[idx + 1] = model[word]#词向量矩阵
     return embedding_matrix
 
+def get_mask(sequences_batch, sequences_lengths):
+    batch_size = sequences_batch.size()[0]
+    max_length = torch.max(sequences_lengths)
+    mask = torch.ones(batch_size, max_length, dtype=torch.float)
+    mask[sequences_batch[:, :max_length] == 0] = 0.0
+    return mask
+
+
+# Code inspired from:
+# https://github.com/allenai/allennlp/blob/master/allennlp/nn/util.py.
+def replace_masked(tensor, mask, value):
+    """
+    Replace the all the values of vectors in 'tensor' that are masked in
+    'masked' by 'value'.
+    Args:
+        tensor: The tensor in which the masked vectors must have their values
+            replaced.
+        mask: A mask indicating the vectors which must have their values
+            replaced.
+        value: The value to place in the masked vectors of 'tensor'.
+    Returns:
+        A new tensor of the same size as 'tensor' where the values of the
+        vectors masked in 'mask' were replaced by 'value'.
+    """
+    mask = mask.unsqueeze(1).transpose(2, 1)
+    reverse_mask = 1.0 - mask
+    values_to_add = value * reverse_mask
+    return tensor * mask + values_to_add
+
+
 def generate_sent_masks(enc_hiddens, source_lengths):
     """ Generate sentence masks for encoder hidden states.
     @param enc_hiddens (Tensor): encodings of shape (b, src_len, h), where b = batch size,

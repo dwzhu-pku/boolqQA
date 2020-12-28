@@ -10,6 +10,7 @@ import utils
 # from data import load_embeddings
 from abcnn import ABCNN
 from bimpm import BIMPM
+from esim import ESIM
 from torchtext import data, vocab
 from torchtext.data import Iterator, BucketIterator
 
@@ -20,7 +21,7 @@ sys.path.append(os.path.join(BASE_DIR, '../code'))
 from dataProcess import TEXT_Field, LABEL_Field, LENGTH_Field, construct_dataset, Mydataset
 
 
-def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_norm):
+def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_norm, model_name):
     """
     Train a model for one epoch on some input data with a given optimizer and
     criterion.
@@ -55,7 +56,12 @@ def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_no
         # print('labels: ', labels)
 
         optimizer.zero_grad()
-        logits, probs = model(q1, q2)
+        if model_name == 'ESIM':
+            q1_length = batch_data.len_question.to(device)
+            q2_length = batch_data.len_passage.to(device)
+            logits, probs = model(q1, q1_length, q2, q2_length)
+        else:   # ABCNN & BIMPM
+            logits, probs = model(q1, q2)
         loss = criterion(logits, labels)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_gradient_norm)
@@ -79,7 +85,7 @@ def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_no
     return epoch_time, epoch_loss, epoch_accuracy, Fscore, precision, recall
 
 
-def validate(model, dataloader, criterion):
+def validate(model, dataloader, criterion, model_name):
     """
     Compute the loss and accuracy of a model on some validation dataset.
     Args:
@@ -115,7 +121,12 @@ def validate(model, dataloader, criterion):
             labels = batch_data.label.to(device)
             # print('labels: ', labels)
 
-            logits, probs = model(q1, q2)
+            if model_name == 'ESIM':
+                q1_length = batch_data.len_question.to(device)
+                q2_length = batch_data.len_passage.to(device)
+                logits, probs = model(q1, q1_length, q2, q2_length)
+            else:   # ABCNN & BIMPM
+                logits, probs = model(q1, q2)
             loss = criterion(logits, labels)
             running_loss += loss.item()
             running_accuracy += utils.correct_predictions(probs, labels)
@@ -174,6 +185,12 @@ def main(train_file, dev_file, embeddings_file, target_dir,
         model = ABCNN(embeddings, device=device).to(device)
     elif model_name == 'BIMPM':
         model = BIMPM(embeddings, device=device).to(device)
+    elif model_name == 'ESIM':
+        # ESIM是在这里修改超参数
+        hidden_size = 300
+        dropout = 0.2
+        num_classes = 2
+        model = ESIM(hidden_size, embeddings=embeddings, dropout=dropout, num_classes=num_classes, device=device).to(device)
 
     # -------------------- Preparation for training  ------------------- #
     criterion = nn.CrossEntropyLoss()
@@ -215,13 +232,13 @@ def main(train_file, dev_file, embeddings_file, target_dir,
         # train
         print("* Training epoch {}:".format(epoch))
         # epoch_time, epoch_loss, epoch_accuracy = train(model, train_loader, optimizer, criterion, epoch, max_grad_norm)
-        epoch_time, epoch_loss, epoch_accuracy, Fscore, precision, recall = train(model, train_iter, optimizer, criterion, epoch, max_grad_norm)
+        epoch_time, epoch_loss, epoch_accuracy, Fscore, precision, recall = train(model, train_iter, optimizer, criterion, epoch, max_grad_norm, model_name=model_name)
         train_losses.append(epoch_loss)
         print("-> Training time: {:.4f}s, loss = {:.4f}, accuracy: {:.4f}%, Fscore = {:.4f}, precision = {:.4f}, recall = {:.4f}".format(epoch_time, epoch_loss, (epoch_accuracy*100), Fscore, precision, recall))
 
         # eval
         print("* Validation for epoch {}:".format(epoch))
-        epoch_time, epoch_loss, epoch_accuracy, epoch_auc, Fscore, precision, recall = validate(model, valid_iter, criterion)
+        epoch_time, epoch_loss, epoch_accuracy, epoch_auc, Fscore, precision, recall = validate(model, valid_iter, criterion, model_name=model_name)
         valid_losses.append(epoch_loss)
         print("-> Valid. time: {:.4f}s, loss: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}, Fscore = {:.4f}, precision = {:.4f}, recall = {:.4f}\n".format(epoch_time, epoch_loss, (epoch_accuracy*100), epoch_auc, Fscore, precision, recall))
         
@@ -253,4 +270,4 @@ if __name__ == "__main__":
     train_file = '../datafile/train.jsonl'
     dev_file = '../datafile/dev.jsonl'
     embeddings_file = "../datafile/glove.6B.100d.txt"
-    main(train_file, dev_file, embeddings_file, "./ckpts_BIMPM_lr0p001", gpu_index=1, model_name='BIMPM')
+    main(train_file, dev_file, embeddings_file, "./ckpts_BIMPM_lr0p001", gpu_index=1, model_name='ESIM')
