@@ -43,6 +43,7 @@ def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_no
     batch_time_avg = 0.0
     running_loss = 0.0
     correct_preds = 0
+    Fscore, precision, recall = 0.0, 0.0, 0.0
     tqdm_batch_iterator = tqdm(dataloader)
 
     for batch_index, batch_data in enumerate(tqdm_batch_iterator):
@@ -62,13 +63,20 @@ def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_no
         batch_time_avg += time.time() - batch_start
         running_loss += loss.item()
         correct_preds += utils.correct_predictions(probs, labels)
+        cur_Fscore, cur_precision, cur_recall = utils.cal_Fscore(probs, labels)
+        Fscore += cur_Fscore
+        precision += cur_precision
+        recall += cur_recall
         description = "Avg. batch proc. time: {:.4f}s, loss: {:.4f}".format(batch_time_avg/(batch_index+1), running_loss/(batch_index+1))
         tqdm_batch_iterator.set_description(description)
 
     epoch_time = time.time() - epoch_start
     epoch_loss = running_loss / len(dataloader)
     epoch_accuracy = correct_preds / len(dataloader.dataset)
-    return epoch_time, epoch_loss, epoch_accuracy
+    Fscore = Fscore / len(dataloader)
+    precision = precision / len(dataloader)
+    recall = recall / len(dataloader)
+    return epoch_time, epoch_loss, epoch_accuracy, Fscore, precision, recall
 
 
 def validate(model, dataloader, criterion):
@@ -93,6 +101,7 @@ def validate(model, dataloader, criterion):
     epoch_start = time.time()
     running_loss = 0.0
     running_accuracy = 0.0
+    Fscore, precision, recall = 0.0, 0.0, 0.0
     all_prob = []
     all_labels = []
     tqdm_batch_iterator = tqdm(dataloader)
@@ -110,6 +119,10 @@ def validate(model, dataloader, criterion):
             loss = criterion(logits, labels)
             running_loss += loss.item()
             running_accuracy += utils.correct_predictions(probs, labels)
+            cur_Fscore, cur_precision, cur_recall = utils.cal_Fscore(probs, labels)
+            Fscore += cur_Fscore
+            precision += cur_precision
+            recall += cur_recall
             all_prob.extend(probs[:,1].cpu().numpy())
             all_labels.extend(labels)
     # print('all_labels: ', all_labels)
@@ -117,7 +130,10 @@ def validate(model, dataloader, criterion):
     epoch_time = time.time() - epoch_start
     epoch_loss = running_loss / len(dataloader)
     epoch_accuracy = running_accuracy / (len(dataloader.dataset))
-    return epoch_time, epoch_loss, epoch_accuracy, roc_auc_score(all_labels, all_prob)
+    Fscore = Fscore / len(dataloader)
+    precision = precision / len(dataloader)
+    recall = recall / len(dataloader)
+    return epoch_time, epoch_loss, epoch_accuracy, roc_auc_score(all_labels, all_prob), Fscore, precision, recall
 
 
 
@@ -127,7 +143,7 @@ def main(train_file, dev_file, embeddings_file, target_dir,
          max_length=50,
          epochs=50,
          batch_size=128,
-         lr=0.1,
+         lr=0.001,
          patience=5,
          max_grad_norm=10.0,
          gpu_index=0,
@@ -199,15 +215,15 @@ def main(train_file, dev_file, embeddings_file, target_dir,
         # train
         print("* Training epoch {}:".format(epoch))
         # epoch_time, epoch_loss, epoch_accuracy = train(model, train_loader, optimizer, criterion, epoch, max_grad_norm)
-        epoch_time, epoch_loss, epoch_accuracy = train(model, train_iter, optimizer, criterion, epoch, max_grad_norm)
+        epoch_time, epoch_loss, epoch_accuracy, Fscore, precision, recall = train(model, train_iter, optimizer, criterion, epoch, max_grad_norm)
         train_losses.append(epoch_loss)
-        print("-> Training time: {:.4f}s, loss = {:.4f}, accuracy: {:.4f}%".format(epoch_time, epoch_loss, (epoch_accuracy*100)))
+        print("-> Training time: {:.4f}s, loss = {:.4f}, accuracy: {:.4f}%, Fscore = {:.4f}, precision = {:.4f}, recall = {:.4f}".format(epoch_time, epoch_loss, (epoch_accuracy*100), Fscore, precision, recall))
 
         # eval
         print("* Validation for epoch {}:".format(epoch))
-        epoch_time, epoch_loss, epoch_accuracy, epoch_auc= validate(model, valid_iter, criterion)
+        epoch_time, epoch_loss, epoch_accuracy, epoch_auc, Fscore, precision, recall = validate(model, valid_iter, criterion)
         valid_losses.append(epoch_loss)
-        print("-> Valid. time: {:.4f}s, loss: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}\n".format(epoch_time, epoch_loss, (epoch_accuracy*100), epoch_auc))
+        print("-> Valid. time: {:.4f}s, loss: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}, Fscore = {:.4f}, precision = {:.4f}, recall = {:.4f}\n".format(epoch_time, epoch_loss, (epoch_accuracy*100), epoch_auc, Fscore, precision, recall))
         
         # Update the optimizer's learning rate with the scheduler.
         scheduler.step(epoch_accuracy)
@@ -229,6 +245,7 @@ def main(train_file, dev_file, embeddings_file, target_dir,
         # 连续 patience 个 epoch 都没有增长, then stop.
         if patience_counter >= patience:
             print("-> Early stopping: patience limit reached, stopping...")
+            print(time.strftime("%Y-%m-%d-%H_%M_%S", time.localtime()))
             break
     
 
@@ -236,4 +253,4 @@ if __name__ == "__main__":
     train_file = '../datafile/train.jsonl'
     dev_file = '../datafile/dev.jsonl'
     embeddings_file = "../datafile/glove.6B.100d.txt"
-    main(train_file, dev_file, embeddings_file, "./ckpts", gpu_index=1, model_name='ABCNN')
+    main(train_file, dev_file, embeddings_file, "./ckpts_BIMPM_lr0p001", gpu_index=1, model_name='BIMPM')

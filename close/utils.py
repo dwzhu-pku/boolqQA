@@ -105,3 +105,20 @@ def correct_predictions(output_probabilities, targets):
     correct = (out_classes == targets).sum()    
     return correct.item()
 
+def cal_Fscore(output_probabilities, labels):
+    _, pred = output_probabilities.max(dim=1)
+    # print('pred_probaility: ', pred)
+    # print('labels: ', labels)
+
+    TP, TN, FN, FP = 0, 0, 0, 0
+    TP += ((pred == 1) & (labels == 1)).sum()  # predict 和 label 同时为1
+    TN += ((pred == 0) & (labels == 0)).sum()  # predict 和 label 同时为0
+    FN += ((pred == 0) & (labels == 1)).sum()  # predict 0 label 1
+    FP += ((pred == 1) & (labels == 0)).sum()  # predict 1 label 0
+    p = TP / (TP + FP)
+    r = TP / (TP + FN)
+    F1 = 2 * r * p / (r + p)
+
+    return F1, p, r
+
+
