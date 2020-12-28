@@ -51,6 +51,7 @@ def train(model, dataloader, optimizer, criterion, epoch_number, max_gradient_no
         q1 = batch_data.question.to(device)
         q2 = batch_data.passage.to(device)
         labels = batch_data.label.to(device)
+        # print('labels: ', labels)
 
         optimizer.zero_grad()
         logits, probs = model(q1, q2)
@@ -103,6 +104,7 @@ def validate(model, dataloader, criterion):
             q1 = batch_data.question.to(device)
             q2 = batch_data.passage.to(device)
             labels = batch_data.label.to(device)
+            # print('labels: ', labels)
 
             logits, probs = model(q1, q2)
             loss = criterion(logits, labels)
@@ -110,6 +112,7 @@ def validate(model, dataloader, criterion):
             running_accuracy += utils.correct_predictions(probs, labels)
             all_prob.extend(probs[:,1].cpu().numpy())
             all_labels.extend(labels)
+    # print('all_labels: ', all_labels)
 
     epoch_time = time.time() - epoch_start
     epoch_loss = running_loss / len(dataloader)
@@ -124,16 +127,16 @@ def main(train_file, dev_file, embeddings_file, target_dir,
          max_length=50,
          epochs=50,
          batch_size=128,
-         lr=0.0005,
+         lr=0.1,
          patience=5,
          max_grad_norm=10.0,
          gpu_index=0,
          checkpoint=None,
          model_name='ABCNN'):
 
-    device = torch.device("cuda:1")
+    # device = torch.device("cuda:2")
     # device= torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    # device = torch.device("cuda:{}".format(gpu_index) if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:{}".format(gpu_index) if torch.cuda.is_available() else "cpu")
     print(20 * "=", " Preparing for training ", 20 * "=")
     # save checkpoints
     if not os.path.exists(target_dir):
@@ -184,8 +187,8 @@ def main(train_file, dev_file, embeddings_file, target_dir,
         valid_losses = checkpoint["valid_losses"]
 
     # Compute loss and accuracy before starting (or resuming) training.
-    _, valid_loss, valid_accuracy, auc = validate(model, valid_iter, criterion)
-    print("\t* Validation loss before training: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}".format(valid_loss, (valid_accuracy*100), auc))
+    # _, valid_loss, valid_accuracy, auc = validate(model, valid_iter, criterion)
+    # print("\t* Validation loss before training: {:.4f}, accuracy: {:.4f}%, auc: {:.4f}".format(valid_loss, (valid_accuracy*100), auc))
 
     # -------------------- Training epochs ------------------- #
     print("\n", 20 * "=", "Training ABCNN model on device: {}".format(device), 20 * "=")
@@ -233,4 +236,4 @@ if __name__ == "__main__":
     train_file = '../datafile/train.jsonl'
     dev_file = '../datafile/dev.jsonl'
     embeddings_file = "../datafile/glove.6B.100d.txt"
-    main(train_file, dev_file, embeddings_file, "./ckpts", gpu_index=2, model_name='ABCNN')
+    main(train_file, dev_file, embeddings_file, "./ckpts", gpu_index=1, model_name='ABCNN')
