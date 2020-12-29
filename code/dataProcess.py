@@ -5,6 +5,7 @@
 """
 
 import json
+import torchtext
 from torchtext import data,vocab
 from torchtext.data import Iterator, BucketIterator #后者自动选取样本长度相似的数据来构建批数据。但是在测试集中一般不想改变样本顺序，因此测试集使用Iterator迭代器来构建。
 import torch
@@ -15,17 +16,17 @@ import time
 
 import torch.utils.data
 
-from transformers import BertTokenizer,BertForSequenceClassification,AdamW,BertModel
+from transformers import *
  
 
 # 以下定义两个Field,Text-Field use vocab=true在生成迭代器的时候，将文本自动转化为vocab中的id，而label本身就是int 不需要numericalize，所以use vocab=false
-TEXT_Field = data.Field(sequential=True, tokenize=wordpunct_tokenize,batch_first=True,lower=True, fix_length=None, init_token="<SOS>", eos_token="<EOS>")
-LABEL_Field = data.Field(sequential=False, use_vocab=False,batch_first=True)
-LENGTH_Field = data.Field(sequential = False, use_vocab = False, batch_first = True)
+TEXT_Field = torchtext.data.Field(sequential=True, tokenize=wordpunct_tokenize,batch_first=True,lower=True, fix_length=None, init_token="<SOS>", eos_token="<EOS>")
+LABEL_Field = torchtext.data.Field(sequential=False, use_vocab=False,batch_first=True)
+LENGTH_Field = torchtext.data.Field(sequential = False, use_vocab = False, batch_first = True)
 
 
 #一个封装好的Dataset类，用于torchtext做相应的field处理
-class Mydataset(data.Dataset):
+class Mydataset(torchtext.data.Dataset):
 
     def __init__(self,datafile, is_test,**kwargs):
         
@@ -40,7 +41,7 @@ class Mydataset(data.Dataset):
                 len_passage = len(wordpunct_tokenize(data_json['passage'])) + 2
                 len_question = len(wordpunct_tokenize(data_json['question'])) + 2#<sos>和<eos>
                 label = None if is_test else data_json['answer']
-                self.examples.append(data.Example.fromlist([data_json['passage'], data_json['question'], len_passage, len_question, label], fields))
+                self.examples.append(torchtext.data.Example.fromlist([data_json['passage'], data_json['question'], len_passage, len_question, label], fields))
 
         super(Mydataset, self).__init__(self.examples, fields, **kwargs)
     
@@ -56,7 +57,7 @@ class Mydataset(data.Dataset):
 
 class Mydataset_for_bert(torch.utils.data.Dataset):
 
-    def __init__(self,filename,max_length_psg = 256,max_length_qst = 25):#bert的最大长度为512
+    def __init__(self,filename,tokenizer):#bert的最大长度为512
         
         self.data_bert = []
         with open(filename, "r", encoding='utf-8') as rfd:
@@ -64,11 +65,7 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
                 data_json = json.loads(data_line)
                 self.data_bert.append(data_json)
         
-
-        self.max_length_psg = max_length_psg
-        self.max_length_qst = max_length_qst
-        self.tokenizer=BertTokenizer.from_pretrained('bert-base-uncased')
-
+        self.tokenizer=tokenizer
     
     def __len__(self):
         return len(self.data_bert)
@@ -81,19 +78,13 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
         label = data_json['answer']
 
         #tokenizer同时做分割和encode到id
-        psg = self.tokenizer(
-            text=psg, add_special_tokens=True, max_length = self.max_length_psg, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt'
-            )
-        ids_psg = torch.squeeze(psg['input_ids'])#要做squeeze,因为tokenizer会默认多一个维度
-        msk_psg = torch.squeeze(psg['attention_mask'])
+        tokens = self.tokenizer(psg,qst, add_special_tokens=True, max_length = 320, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt')
+        
+        input_ids = torch.squeeze(tokens['input_ids'])#要做squeeze,因为tokenizer会默认多一个维度
+        attention_mask = torch.squeeze(tokens['attention_mask'])
 
-        qst = self.tokenizer(
-            text=qst, add_special_tokens=True, max_length = self.max_length_psg, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt'
-            )
-        ids_qst = torch.squeeze(qst['input_ids'])
-        msk_qst = torch.squeeze(qst['attention_mask'])
 
-        return ids_psg,msk_psg, ids_qst, msk_qst,int(label)
+        return input_ids, attention_mask,int(label)
 
 
 
