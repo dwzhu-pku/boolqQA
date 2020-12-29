@@ -27,6 +27,17 @@ def load_embeddings(embedding_path):
         embedding_matrix[idx + 1] = model[word]#词向量矩阵
     return embedding_matrix
 
+
+def sort_by_seq_lens(batch, sequences_lengths, descending=True):
+    sorted_seq_lens, sorting_index = sequences_lengths.sort(0, descending=descending)
+    sorted_batch = batch.index_select(0, sorting_index)
+    idx_range = torch.arange(0, len(sequences_lengths)).type_as(sequences_lengths)
+    #idx_range = sequences_lengths.new_tensor(torch.arange(0, len(sequences_lengths)))
+    _, revese_mapping = sorting_index.sort(0, descending=False)
+    restoration_index = idx_range.index_select(0, revese_mapping)
+    return sorted_batch, sorted_seq_lens, sorting_index, restoration_index
+
+
 def get_mask(sequences_batch, sequences_lengths):
     batch_size = sequences_batch.size()[0]
     max_length = torch.max(sequences_lengths)
