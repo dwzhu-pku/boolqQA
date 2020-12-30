@@ -14,7 +14,7 @@ if __name__ == "__main__":
     pattern = 'roberta'
     config = classify(
         pattern=pattern,
-        epoch_num=20,lr=5e-5,batch_size =16,patience = 2,
+        epoch_num=30,lr=8e-6,batch_size =16,patience = 2,
         device= torch.device("cuda:7" if torch.cuda.is_available() else "cpu"),
         GLOVE_PATH = "../datafile/glove.6B.100d.txt"
     )#设置device,在nn.module层面设置to(self.device))

@@ -64,7 +64,6 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
             for data_line in rfd:
                 data_json = json.loads(data_line)
                 self.data_bert.append(data_json)
-        
         self.tokenizer=tokenizer
     
     def __len__(self):
@@ -75,10 +74,11 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
         data_json = self.data_bert[index]
         psg = data_json['passage']
         qst = data_json['question']
+        title = data_json['title']
         label = data_json['answer']
 
-        #tokenizer同时做分割和encode到id
-        tokens = self.tokenizer(psg,qst, add_special_tokens=True, max_length = 320, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt')
+        #tokenizer同时做分割和encode到id，这里利用两次sep_token与title分割
+        tokens = self.tokenizer(psg,qst+'</s>' + '</s>' +title, add_special_tokens=True, max_length = 320, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt')
         
         input_ids = torch.squeeze(tokens['input_ids'])#要做squeeze,因为tokenizer会默认多一个维度
         attention_mask = torch.squeeze(tokens['attention_mask'])
