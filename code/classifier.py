@@ -195,11 +195,11 @@ class classify():
         return accu
 
     def save_parameter(self):
-        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+'_parameter.pth'
         torch.save(self.network.state_dict(),filename)
 
     def load_parameter(self):
-        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+'_parameter.pth'
         self.network.load_state_dict(torch.load(filename))
 
 
