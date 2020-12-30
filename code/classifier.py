@@ -28,6 +28,14 @@ class classify():
         self.batch_size = batch_size
         self.tokenizer = None
 
+        self.train_dataset = Mydataset('../datafile/train.jsonl',False)
+        self.valid_dataset = Mydataset('../datafile/dev.jsonl',False)
+        
+        if not os.path.exists("../datafile/.vector_cache"):
+            os.mkdir("../datafile/.vector_cache")
+        TEXT_Field.build_vocab(self.train_dataset, vectors=vocab.Vectors(GLOVE_PATH))
+        self.vocab = TEXT_Field.vocab
+
         if pattern=='lstm_attn':#batch size 128 2e-4 patience 5
             self.network = LSTM_ATTN(vocab = self.vocab, hidden_size1 = 128, hidden_size2 = 64, output_size = 2, dropout = 0.3,device = device)
         elif pattern=='abcnn':#batch size 32 lr 2e-4 patience 5
@@ -39,20 +47,16 @@ class classify():
         elif pattern =='bert':#batch size16/32  5e-5 patience 2
             self.network =BertForSequenceClassification.from_pretrained('bert-base-uncased',num_labels = 2).to(device)
             self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        elif pattern =='roberta':
+        elif pattern =='roberta':#batch 16/32 6e-5 patience2
             self.network = RobertaForSequenceClassification.from_pretrained('roberta-base',num_labels = 2).to(device)
             self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
 
-        self.train_dataset = Mydataset('../datafile/train.jsonl',False)
-        self.valid_dataset = Mydataset('../datafile/dev.jsonl',False)
+        
 
         self.train_dataset_for_bert = Mydataset_for_bert('../datafile/train.jsonl',self.tokenizer)
         self.valid_dataset_for_bert = Mydataset_for_bert('../datafile/dev.jsonl',self.tokenizer)
 
-        if not os.path.exists("../datafile/.vector_cache"):
-            os.mkdir("../datafile/.vector_cache")
-        TEXT_Field.build_vocab(self.train_dataset, vectors=vocab.Vectors(GLOVE_PATH))
-        self.vocab = TEXT_Field.vocab
+        
 
     def train(self):
         s = time.time()
