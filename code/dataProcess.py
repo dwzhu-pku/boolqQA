@@ -28,20 +28,23 @@ LENGTH_Field = torchtext.data.Field(sequential = False, use_vocab = False, batch
 #一个封装好的Dataset类，用于torchtext做相应的field处理
 class Mydataset(torchtext.data.Dataset):
 
-    def __init__(self,datafile, is_test,**kwargs):
+    def __init__(self,datafile, with_title,is_test,**kwargs):#with title的方式是naive的拼接
         
         self.examples = []
         fields = [('passage',TEXT_Field),('question',TEXT_Field),('len_passage',LENGTH_Field),('len_question',LENGTH_Field),('label',LABEL_Field)]
         if is_test:
-            fields[4] = ('label',None)#对于test没有对应的label
+            fields[-1] = ('label',None)#对于test没有对应的label
         
         with open(datafile, "r", encoding='utf-8') as rfd:
             for data_line in rfd:
                 data_json = json.loads(data_line)
-                len_passage = len(wordpunct_tokenize(data_json['passage'])) + 2
-                len_question = len(wordpunct_tokenize(data_json['question'])) + 2#<sos>和<eos>
+                passage = data_json['title'] + data_json['passage'] if with_title else data_json['passage']
+                question = data_json['question']
+
+                len_passage = len(wordpunct_tokenize(passage)) + 2
+                len_question = len(wordpunct_tokenize(question)) + 2#<sos>和<eos>
                 label = None if is_test else data_json['answer']
-                self.examples.append(torchtext.data.Example.fromlist([data_json['passage'], data_json['question'], len_passage, len_question, label], fields))
+                self.examples.append(torchtext.data.Example.fromlist([passage, question, len_passage, len_question, label], fields))
 
         super(Mydataset, self).__init__(self.examples, fields, **kwargs)
     
@@ -57,7 +60,7 @@ class Mydataset(torchtext.data.Dataset):
 
 class Mydataset_for_bert(torch.utils.data.Dataset):
 
-    def __init__(self,filename,tokenizer):#bert的最大长度为512
+    def __init__(self,filename,tokenizer,with_title,is_test):#bert的最大长度为512
         
         self.data_bert = []
         with open(filename, "r", encoding='utf-8') as rfd:
@@ -65,6 +68,8 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
                 data_json = json.loads(data_line)
                 self.data_bert.append(data_json)
         self.tokenizer=tokenizer
+        self.with_title = with_title
+        self.is_test=is_test
     
     def __len__(self):
         return len(self.data_bert)
@@ -75,10 +80,11 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
         psg = data_json['passage']
         qst = data_json['question']
         title = data_json['title']
-        label = data_json['answer']
+        label = 0 if self.is_test else data_json['answer']#根据传入是否是test来决定label
+        if self.with_title:psg = title + psg#拼接到最前面
 
         #tokenizer同时做分割和encode到id，这里利用两次sep_token与title分割
-        tokens = self.tokenizer(psg,qst+'</s>' + '</s>' +title, add_special_tokens=True, max_length = 320, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt')
+        tokens = self.tokenizer(psg,qst, add_special_tokens=True, max_length = 320, padding='max_length',truncation=True,return_attention_mask = True, return_tensors='pt')
         
         input_ids = torch.squeeze(tokens['input_ids'])#要做squeeze,因为tokenizer会默认多一个维度
         attention_mask = torch.squeeze(tokens['attention_mask'])
