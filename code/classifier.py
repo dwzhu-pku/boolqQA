@@ -21,6 +21,7 @@ class classify():
     def __init__(self,pattern,with_title,epoch_num,batch_size,lr,patience,device,GLOVE_PATH = "../datafile/glove.6B.100d.txt"):
         self.pattern = pattern
 
+        self.with_title = with_title
         self.epoch_num = epoch_num
         self.lr = lr
         self.patience = patience
@@ -213,11 +214,11 @@ class classify():
         return accu
 
     def save_parameter(self):
-        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+'_parameter.pth'
+        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+ ('_title' if self.with_title else '_notitle') +'_parameter.pth'
         torch.save(self.network.state_dict(),filename)
 
     def load_parameter(self):
-        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+'_parameter.pth'
+        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+ ('_title' if self.with_title else '_notitle') + '_parameter.pth'
         self.network.load_state_dict(torch.load(filename))
 
 
