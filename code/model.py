@@ -32,7 +32,7 @@ class LSTM_ATTN(nn.Module):
         self.tanh = nn.Tanh()#非线性激活,规模不变
         self.attn = nn.Parameter(torch.zeros(hidden_size1 * 2)).to(device)#和每个hidden_vector做乘积之后再sotfmax得到权重
         
-        self.linear1 = nn.Linear(in_features=hidden_size1 * 16,out_features=hidden_size2).to(device)#attention + hidden_t=4:u,v,|u-v|,u*v
+        self.linear1 = nn.Linear(in_features=hidden_size1 * 8,out_features=hidden_size2).to(device)#attention + hidden_t=4:u,v,|u-v|,u*v
         self.linear2 = nn.Linear(in_features=hidden_size2,out_features=output_size).to(device)
 
         self.device = device
@@ -64,7 +64,7 @@ class LSTM_ATTN(nn.Module):
         outputs_qst = self.forward_single(ids_qst,lens_qst)
         sub = torch.abs(torch.sub(outputs_psg,outputs_qst))
         mul = torch.mul(outputs_psg,outputs_qst)
-        outputs = torch.cat((outputs_psg,outputs_qst,sub,mul),dim = 1)#batch,hidden1*16
+        outputs = torch.cat((outputs_psg,outputs_qst),dim = 1)#batch,hidden1*16
 
         outputs = self.dropout_layer(outputs)
         
