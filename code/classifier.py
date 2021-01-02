@@ -21,9 +21,9 @@ class classify():
     def __init__(self,pattern,with_title,epoch_num,batch_size,lr,patience,device,GLOVE_PATH = "../datafile/glove.6B.100d.txt"):
         self.pattern = pattern
 
-        self.with_title = with_title
         self.epoch_num = epoch_num
         self.lr = lr
+        self.with_title = with_title
         self.patience = patience
         self.device = device
         self.batch_size = batch_size
@@ -39,13 +39,13 @@ class classify():
         self.vocab = TEXT_Field.vocab
 
 
-        if pattern=='lstm_attn':#batch size 128 5e-4 patience 4
+        if pattern=='lstm_attn':#batch size 128 1e-3 patience 4
             self.network = LSTM_ATTN(vocab = self.vocab, hidden_size1 = 128, hidden_size2 = 64, output_size = 2, dropout = 0.3,device = device)
-        elif pattern=='abcnn':#batch size 32 lr 2e-4 patience 4
+        elif pattern=='abcnn':#batch size 32 lr 1e-3 patience 4
             self.network = ABCNN(vocab=self.vocab, num_layer=1, linear_size=300, max_length=300, device = device)
-        elif pattern=='bimpm':#batch size 64   lr 2e-4 patience 4
+        elif pattern=='bimpm':#batch size 32   lr 1e-3 patience 4
             self.network = BIMPM(vocab=self.vocab, hidden_size=100, num_perspective=20, class_size=2, device=device)
-        elif pattern == 'esim':#batch size 128 lr 5e-4 patience 4 
+        elif pattern == 'esim':#batch size 128 lr 1e-3 patience 4 
             self.network = ESIM(vocab=self.vocab, hihdden_size=100,dropout=0.5, num_classes=2, device=device)
         
 
@@ -214,11 +214,16 @@ class classify():
         return accu
 
     def save_parameter(self):
-        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+ ('_title' if self.with_title else '_notitle') +'_parameter.pth'
+        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        if self.with_title:
+            filename = '/home/wzr/hw3/parameter/'+self.pattern+'_title_parameter.pth'
+        
         torch.save(self.network.state_dict(),filename)
 
     def load_parameter(self):
-        filename = '/home/wenhao/dawei/boolqQA/parameter/'+self.pattern+ ('_title' if self.with_title else '_notitle') + '_parameter.pth'
+        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        if self.with_title:
+            filename = '/home/wzr/hw3/parameter/'+self.pattern+'_title_parameter.pth'
         self.network.load_state_dict(torch.load(filename))
 
 
