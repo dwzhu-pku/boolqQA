@@ -98,8 +98,9 @@ class Mydataset_for_bert(torch.utils.data.Dataset):
 
 # 加载验证集和训练集。测试集相关部分有待补充
 def construct_dataset():
-    train_data,valid_data = Mydataset('../datafile/train.jsonl',False),Mydataset('../datafile/dev.jsonl',False)
-    return train_data,valid_data
+    train_data,valid_data,test_data = Mydataset('../datafile/train.jsonl',False,False),Mydataset('../datafile/dev.jsonl',False,False),Mydataset('../datafile/test.jsonl',False,True)
+    #train_data_bert,valid_data_bert,test_data_bert = Mydataset_for_bert()
+    return train_data,valid_data,test_data
 
 
 if __name__ == "__main__":
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     GLOVE_PATH = "../datafile/glove.6B.100d.txt" # 全局变量，指向预训练词向量
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     s=time.time()
-    train_data,valid_data = construct_dataset()
+    train_data,valid_data,test_data = construct_dataset()
     if not os.path.exists("../datafile/.vector_cache"):
         os.mkdir("../datafile/.vector_cache")
     TEXT_Field.build_vocab(train_data, vectors=vocab.Vectors(GLOVE_PATH)) #由train_dataset构建映射关系,vocab是属于field的信息
@@ -134,26 +135,34 @@ if __name__ == "__main__":
         sort = False,
         repeat=False
     )
+    test_iter = Iterator(
+        test_data,
+        train=False,
+        batch_size = 64,
+        device = device,
+        sort = False,
+        repeat = False
+    )
 
     # 简单的sanity check
-    for idx, batch in enumerate(valid_iter):
+    for idx, batch in enumerate(test_iter):
+        if idx>0:break
         print(batch)
         
-        """
-        ques,passage,len_passage,len_question,label = batch.question,batch.passage,batch.len_passage,batch.len_question,batch.label
+        
+        ques,passage,len_passage,len_question = batch.question,batch.passage,batch.len_passage,batch.len_question
         
         print("question:",ques)
         print("passage:",passage)
         print("len_passage",len_passage)
         print("len_question",len_question)
-        print("label:",label)
+
 
         print(" ".join([vocab.itos[num.item()] for num in ques[1]]))
         print(" ".join([vocab.itos[num.item()] for num in passage[1]]))
         print(len_passage[1].item())
         print(len_question[1].item())
-        print(label[1].item())
-        """
+        
         
 
     print('耗时：',(time.time()-s)/60,' min')

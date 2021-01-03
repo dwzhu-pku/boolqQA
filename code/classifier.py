@@ -66,8 +66,6 @@ class classify():
         self.valid_dataset_for_bert = Mydataset_for_bert('../datafile/dev.jsonl',self.tokenizer,with_title = with_title,is_test=False)
         self.test_dataset_for_bert = Mydataset_for_bert('../datafile/test.jsonl',self.tokenizer,with_title = with_title,is_test=True)
 
-        
-
     def train(self):
         s = time.time()
         print('start training,lr=',self.lr)
@@ -142,8 +140,6 @@ class classify():
                 self.save_parameter()#已保存
                 accu=epoch_accu
             
-    
-
     def eval(self,need_load):
         if need_load==True:#如果需要，则load
             self.load_parameter()
@@ -213,22 +209,130 @@ class classify():
         print('P_yes: ',P_yes,' R_yes: ',R_yes,' F1_yes:',F1_yes,' ---- P_no: ',P_no,' R_no: ',R_no,' F1_no:',F1_no,'---- accu: ',accu)
         return accu
 
-    def save_parameter(self):
-        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
-        if self.with_title:
-            filename = '/home/wzr/hw3/parameter/'+self.pattern+'_title_parameter.pth'
+    def vote_eval(self):
+        valid_iter=Iterator(
+                self.valid_dataset,train = False,batch_size = 32 ,device=self.device,sort_within_batch=False,sort = False,repeat=False
+            )
+        tqdm_iterator = tqdm(valid_iter)
+        TP,TN,FP,FN = 0,0,0,0
+        path = '_title_parameter.pth' if self.with_title else '_parameter.pth'
+
+        lstm_attn = LSTM_ATTN(vocab = self.vocab, hidden_size1 = 128, hidden_size2 = 64, output_size = 2, dropout = 0.3,device = self.device)
+        filename = '/home/wzr/hw3/parameter/lstm_attn'+path
+        lstm_attn.load_state_dict(torch.load(filename))
+        lstm_attn.eval()
+
+        abcnn = ABCNN(vocab=self.vocab, num_layer=1, linear_size=300, max_length=300, device = self.device)
+        filename = '/home/wzr/hw3/parameter/abcnn'+path
+        abcnn.load_state_dict(torch.load(filename))
+        abcnn.eval()
+
+        bimpm = BIMPM(vocab=self.vocab, hidden_size=100, num_perspective=20, class_size=2, device=self.device)
+        filename = '/home/wzr/hw3/parameter/bimpm'+path
+        bimpm.load_state_dict(torch.load(filename))
+        bimpm.eval()
+
+        with torch.no_grad():
+            for iteration,batch_data in enumerate(tqdm_iterator):#按照batch给出
+                ids_psg = batch_data.passage.to(self.device)
+                ids_qst = batch_data.question.to(self.device)
+                lens_psg = batch_data.len_passage.to(self.device)
+                lens_qst = batch_data.len_question.to(self.device)
+                labels = batch_data.label.to(self.device)
+
+                outputs = []
+
+                outputs.append(lstm_attn.forward(ids_psg = ids_psg,ids_qst=ids_qst,lens_psg=lens_psg,lens_qst=lens_qst))
+                outputs.append (abcnn.forward(q1=ids_qst,q2=ids_psg))
+                outputs.append(bimpm.forward(q1=ids_qst,q2=ids_psg))
+
+                batch_size = labels.size(0)
+                ones = torch.ones(batch_size,dtype=torch.long).to(self.device)
+                zeros = torch.zeros(batch_size,dtype=torch.long).to(self.device)#必须是long类型的才可以
+
+                pred0=outputs[0].argmax(dim=1)
+                pred1 = outputs[1].argmax(dim=1)
+                pred2 = outputs[2].argmax(dim=1)
+                for i in range(3):
+                    outputs[i]= outputs[i].argmax(dim=1)
+                pred = pred0 + pred1 + pred2
+                
+                pred = pred > 1#这一步是element wise的操作 十分简洁大于1表示有至少两个选择为yes，反之为no
+
+                TP += ((pred==ones)&(labels==ones)).sum()
+                TN += ((pred==zeros)&(labels==zeros)).sum()
+                FP += ((pred==zeros)&(labels==ones)).sum()
+                FN += ((pred==ones)&(labels==zeros)).sum()
         
-        torch.save(self.network.state_dict(),filename)
+        P_yes = float(TP)/float(TP+FP) if (TP + TP)!=0 else 0 
+        R_yes = float(TP)/float(TP+FN) if (TP + FN)!=0 else 0
+        F1_yes = 2 *P_yes * R_yes/(P_yes+R_yes) if (R_yes + P_yes)!= 0 else 0
 
-    def load_parameter(self):
-        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
-        if self.with_title:
-            filename = '/home/wzr/hw3/parameter/'+self.pattern+'_title_parameter.pth'
-        self.network.load_state_dict(torch.load(filename))
+        P_no = float(TN)/float(TN+FN) if (TN+FN)!=0 else 0
+        R_no = float(TN)/float(TN+FP) if (TN+FP)!=0 else 0
+        F1_no = 2 * P_no *R_no /(P_no + R_no) if (P_no + R_no)!=0 else 0
+
+        accu = float((TP+TN))/float((TP+TN+FP+FN))
+        print('P_yes: ',P_yes,' R_yes: ',R_yes,' F1_yes:',F1_yes,' ---- P_no: ',P_no,' R_no: ',R_no,' F1_no:',F1_no,'---- accu: ',accu)
+        return accu
+
+    def vote_inference(self):
+        test_iter=Iterator(
+                self.test_dataset,train = False,batch_size = 32 ,device=self.device,sort_within_batch=False,sort = False,repeat=False
+            )
+        tqdm_iterator = tqdm(test_iter)
+        path = '_title_parameter.pth' if self.with_title else '_parameter.pth'
+
+        lstm_attn = LSTM_ATTN(vocab = self.vocab, hidden_size1 = 128, hidden_size2 = 64, output_size = 2, dropout = 0.3,device = self.device)
+        filename = '/home/wzr/hw3/parameter/lstm_attn'+path
+        lstm_attn.load_state_dict(torch.load(filename))
+        lstm_attn.eval()
+
+        abcnn = ABCNN(vocab=self.vocab, num_layer=1, linear_size=300, max_length=300, device = self.device)
+        filename = '/home/wzr/hw3/parameter/abcnn'+path
+        abcnn.load_state_dict(torch.load(filename))
+        abcnn.eval()
+
+        bimpm = BIMPM(vocab=self.vocab, hidden_size=100, num_perspective=20, class_size=2, device=self.device)
+        filename = '/home/wzr/hw3/parameter/bimpm'+path
+        bimpm.load_state_dict(torch.load(filename))
+        bimpm.eval()
 
 
-    
+
+        result = []
+        with torch.no_grad():
+            for iteration,batch_data in enumerate(tqdm_iterator):#按照batch给出
+                ids_psg = batch_data.passage.to(self.device)
+                ids_qst = batch_data.question.to(self.device)
+                lens_psg = batch_data.len_passage.to(self.device)
+                lens_qst = batch_data.len_question.to(self.device)
+
+                outputs = []
+
+                outputs.append(lstm_attn.forward(ids_psg = ids_psg,ids_qst=ids_qst,lens_psg=lens_psg,lens_qst=lens_qst))
+                outputs.append (abcnn.forward(q1=ids_qst,q2=ids_psg))
+                outputs.append(bimpm.forward(q1=ids_qst,q2=ids_psg))
+
+                pred0 = outputs[0].argmax(dim=1)
+                pred1 = outputs[1].argmax(dim=1)
+                pred2 = outputs[2].argmax(dim=1)
+                for i in range(3):
+                    outputs[i]= outputs[i].argmax(dim=1)
+                pred = pred0 + pred1 + pred2
+                
+                pred = pred > 1#这一步是element wise的操作 十分简洁大于1表示有至少两个选择为yes，反之为no
+
+                #此时的结果是batch的
+                result+=pred.cpu().numpy().tolist()
+        
+        result = [str(i)+'\n' for i in result]
+        print(len(result))
+        with open('inference.txt',encoding='utf-8',mode='w+') as f:
+            f.writelines(result)
+
     def inference(self):
+
         #依据self.pattern选择
         self.load_parameter()
         self.network.eval()
@@ -276,3 +380,16 @@ class classify():
         result = [str(i)+'\n' for i in result]
         with open('inference.txt',encoding='utf-8',mode='w+') as f:
             f.writelines(result)
+
+    def save_parameter(self):
+        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        if self.with_title:
+            filename = '/home/wzr/hw3/parameter/'+self.pattern+'_title_parameter.pth'
+        
+        torch.save(self.network.state_dict(),filename)
+
+    def load_parameter(self):
+        filename = '/home/wzr/hw3/parameter/'+self.pattern+'_parameter.pth'
+        if self.with_title:
+            filename = '/home/wzr/hw3/parameter/'+self.pattern+'_title_parameter.pth'
+        self.network.load_state_dict(torch.load(filename))
